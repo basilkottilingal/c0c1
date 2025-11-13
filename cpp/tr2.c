@@ -9,6 +9,7 @@
 .. Assumes translation phase 1 is obsolete (and not required).
 */
 
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,14 +24,6 @@ static FILE * fp;
 static char * eob = NULL;
 static char * eof = (char *) 1;
 static char * ptr = NULL;
-
-#ifndef CPP_PAGE_SIZE
-  #define CPP_PAGE_SIZE (1<<14)
-#endif
-static size_t page_size = CPP_PAGE_SIZE;
-void page_size_set (size_t s) {
-  page_size = s;
-}
 
 static int input_stack () {
   BuffStack * s = malloc (sizeof (BuffStack));

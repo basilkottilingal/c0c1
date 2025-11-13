@@ -47,6 +47,7 @@ STRING (\"([^"\\\n]|{ES})*\")
   #include <stdint.h>
 
   #include "tokens.h"
+  #include "cpp.h"
   
   #define CPP_NONE               0
   #define CPP_IF                 1
@@ -679,4 +680,12 @@ int main ( int argc, char * argv[] ) {
     cpp_warning ("# if not closed");
 
   return 0;
+}
+
+static size_t cpp_buff_size = CPP_PAGE_SIZE;
+void cpp_buff_size_set (size_t s) {
+  cpp_buff_size = s;
+}
+size_t cpp_buff_size_set () {
+  return cpp_buff_size;
 }
