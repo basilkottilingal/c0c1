@@ -3,6 +3,7 @@
 
 1. Raw sourcec code 
   - replace trigraphs.
+
 | Replace |  Replace by |
 | ----    |  ------     |
 | ??=	| `#`	hash        |
@@ -17,6 +18,7 @@
        Trigraphs are obsolete in c11 and removed in c23 altogether
    - make sure source code characters are in [0x00,0xFF] (utf-8).
    - optionally you can replace
+
 | Replace |  Replace by |
 | ----    |  ------     |
 | `\r\n`  | `\n`        |
@@ -28,10 +30,17 @@
 
    It's a guaranteed feature in ISO C (across all versions).
    Note : replace the following digraphs 
+
 | Replace |  Replace by |
 | ----    |  ------     |
 |    %:	  |   `#`  |
 |    %:%:	|   `##` |
+  
+  Note : 
+  - `%:` is replaced by `#` only if it is at the beginning of a line or
+it satisfies the regex pattern `^[ \t]*%:`.
+  - `%:%:` is replaced by `##` only if it is a properly placed
+concate operator in the  `#define` macro definition
 
 
 3. Replace `//.*` and `/*...*/` with empty spaces of equal length
