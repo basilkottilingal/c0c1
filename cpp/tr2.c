@@ -14,24 +14,85 @@
 #include <stdlib.h>
 #include <string.h>
 
+/*
+.. fread and put in buffer, if buffer is full, create a new buffer
+.. and stack up buffers.
+*/
+static BuffStack * head = NULL;
 typedef struct BuffStack {
   char * buff;
   struct BuffStack * next;
 } BuffStack;
-
-static BuffStack * head = NULL;
 static FILE * fp;
-static char * eob = NULL;
-static char * eof = (char *) 1;
-static char * ptr = NULL;
+static char yytext_dummy [] = "";
+static char * yytext = yytext_dummy;
+static char * eob    = yytext_dummy;
+static char * ptr    = yytext_dummy;
+static char * eof    = NULL;
+
+/*
+.. prepreprocessed output
+*/
+static char * buff;
+static char * bptr;
+static char * strt;
+static char * lim;
+
+
+#define ACCEPT() do {   \
+    *yytext = holdchar; \
+    yytext = ptr;       \
+    holdchar = *yytext; \
+    *yytext = '\0';     \
+  } while (0)
+
+#define EOB() do {                                       \
+    if ( strt == buff )                                  \
+      if ( (buff = realloc (buff, lim-buff)) == NULL) {  \
+        fprintf (stderr, "\ncpp : realloc () failed");   \
+        exit (-1);                                       \
+      }                                                  \
+  }
+
+#define YYSTART() do {  \
+    if (ptr == yytext)  \
+      break;            \
+     
+  } while (0)
 
 static int input_stack () {
-  BuffStack * s = malloc (sizeof (BuffStack));
-  if ( !s || !(s->buff = malloc (page_size)) ) {
-    fprintf(stderr, "cpp out of dynamic memory : malloc failed");
+
+  if (!fp) {
+    fprintf(stderr, "cpp : internal error : missing input file");
     exit (-1);
   }
-  s->next = head;
+
+  BuffStack * s = head;
+  char * buff = head ? head->buff : NULL;
+  size_t size = eob-yystart;
+
+  if ( buff == yytext) {
+    buff = realloc ( buff, 2*size );
+    if ( !buff ) {
+      fprintf(stderr, "cpp : out of dynamic memory");
+      exit (-1);
+    }
+    yytext = head->buff = buff;
+    eob = buff + 2*size ;
+    ptr = buff + size;
+  }
+  else {
+    s = malloc (sizeof (BuffStack));
+    buff = malloc (page_size);
+    if (!s || !buff) {
+      fprintf(stderr, "cpp : out of dynamic memory");
+      exit (-1);
+    }
+    s->buff = buff;
+    eob = buff + page_size;
+    yystart = buff 
+  }
+
   head = s;
   size_t n = fread (s->buff, 1, page_size - 1, fp);
   eob = s->buff + n;
@@ -54,11 +115,6 @@ static int input () {
   }
   return (int) (unsigned char) *ptr++;
 }
-
-static char * buff;
-static char * bptr;
-static char * strt;
-static char * lim;
 
 static void echo () {
   fwrite (buff, 1, strt-buff, stdout);
