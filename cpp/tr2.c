@@ -30,37 +30,15 @@ static char * eob    = yytext_dummy;
 static char * ptr    = yytext_dummy;
 static char * eof    = NULL;
 
-/*
-.. prepreprocessed output
-*/
-static char * buff;
-static char * bptr;
-static char * strt;
-static char * lim;
+#define oom() do {                                       \
+      fprintf(stderr, "cpp : out of dynamic memory");    \
+      exit (-1);                                         \
+    } while (0)
 
+static void input_stack () {
 
-#define ACCEPT() do {   \
-    *yytext = holdchar; \
-    yytext = ptr;       \
-    holdchar = *yytext; \
-    *yytext = '\0';     \
-  } while (0)
-
-#define EOB() do {                                       \
-    if ( strt == buff )                                  \
-      if ( (buff = realloc (buff, lim-buff)) == NULL) {  \
-        fprintf (stderr, "\ncpp : realloc () failed");   \
-        exit (-1);                                       \
-      }                                                  \
-  }
-
-#define YYSTART() do {  \
-    if (ptr == yytext)  \
-      break;            \
-     
-  } while (0)
-
-static int input_stack () {
+  if (eof == eob)
+    return;
 
   if (!fp) {
     fprintf(stderr, "cpp : internal error : missing input file");
@@ -69,51 +47,83 @@ static int input_stack () {
 
   BuffStack * s = head;
   char * buff = head ? head->buff : NULL;
-  size_t size = eob-yystart;
+  size_t non_parsed = eob - yytext,
+    size = page_size;
 
-  if ( buff == yytext) {
-    buff = realloc ( buff, 2*size );
-    if ( !buff ) {
-      fprintf(stderr, "cpp : out of dynamic memory");
-      exit (-1);
-    }
-    yytext = head->buff = buff;
-    eob = buff + 2*size ;
-    ptr = buff + size;
+  if (buff == yytext) {
+    size = 2 * non_parsed;
+    buff = realloc (buff, size);
+    if (!buff)
+      oom ();
+    head->buff = buff;
   }
   else {
     s = malloc (sizeof (BuffStack));
-    buff = malloc (page_size);
-    if (!s || !buff) {
-      fprintf(stderr, "cpp : out of dynamic memory");
-      exit (-1);
-    }
+    buff = malloc (size);
+    if (!s || !buff)
+      oom ();
     s->buff = buff;
-    eob = buff + page_size;
-    yystart = buff 
+    s->next = head;
+    head = s;
+    memcpy (buff, yytext, non_parsed);
   }
 
-  head = s;
-  size_t n = fread (s->buff, 1, page_size - 1, fp);
-  eob = s->buff + n;
-  ptr = s->buff;
-  if (n < page_size - 1) {
+  size_t n = non_parsed + fread (ptr, 1, size - non_parsed, fp);
+  yytext = buff;
+  ptr    = buff + non_parsed;
+  eob    = buff + n;
+  if (n < size) {
     if (!feof (fp)) {
       fprintf (stderr, "fread () failed");
       exit (-1);
     }
-    eof = s->buff + n;
-    if (!n) return 1;
+    eof = eob;
   }
-  return 0;
 }
 
 static int input () {
   if (ptr == eob) {
-    if (ptr == eof || input_stack ())
+    input_stack ();
+    if (eob == eof)
       return EOF;
   }
   return (int) (unsigned char) *ptr++;
+}
+
+
+/*
+.. prepreprocessed output
+*/
+static char * buff = NULL;
+static char * bptr;
+static char * strt;
+static char * lim;
+
+#define YYTOKEN() \
+  strt = bptr;    \
+  yytext = ptr
+
+static int output (int c) {
+  if (bptr == lim) {
+    if (strt == buff) {
+      size_t s = (size_t)1 + (lim - strt);
+      buff = realloc (buff, 2*s);
+      if (!buff)
+        oom ();
+      bptr = buff + (s-1);
+      lim  = buff + (2*s-1);
+    }
+    else {
+      *lim++ = (char) (unsigned char) c;
+      return 1;
+    }
+  }
+
+  *bptr++ = (char) (unsigned char) c;
+  if (c == '\n') {
+    YYTOKEN;
+  }
+  return 0;
 }
 
 static void echo () {
