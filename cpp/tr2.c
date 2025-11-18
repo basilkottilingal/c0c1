@@ -14,69 +14,76 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cpp.h"
+
 /*
 .. fread and put in buffer, if buffer is full, create a new buffer
-.. and stack up buffers.
+.. and stack up buffers. Each "tkn" should be contiguous in memory.
+.. NOTE : Each "tkn" in the input buffer corresponds to a line after
+.. removing splicing ( "\\\n" ). The corresponding prepreprocessed
+.. output should also be contiguous.
 */
-static BuffStack * head = NULL;
 typedef struct BuffStack {
   char * buff;
   struct BuffStack * next;
 } BuffStack;
-static FILE * fp;
-static char yytext_dummy [] = "";
-static char * yytext = yytext_dummy;
-static char * eob    = yytext_dummy;
-static char * ptr    = yytext_dummy;
-static char * eof    = NULL;
+static BuffStack * head = NULL;
+static char tkn_dummy [] = "";
+static FILE * fp  = NULL;
+static char * tkn = tkn_dummy;
+static char * eob = tkn_dummy;
+static char * ptr = tkn_dummy;
+static char * eof = NULL;
 
-#define oom() do {                                       \
+#define oom(_c_)                                         \
+  do {                                                   \
+    if (_c_) {                                           \
       fprintf(stderr, "cpp : out of dynamic memory");    \
       exit (-1);                                         \
-    } while (0)
+    }                                                    \
+  } while (0)
 
 static void input_stack () {
+
+  if (!fp) {
+    fprintf (stderr, "\ncpp : no input source");
+    exit (-1);
+  }
 
   if (eof == eob)
     return;
 
-  if (!fp) {
-    fprintf(stderr, "cpp : internal error : missing input file");
-    exit (-1);
-  }
-
-  BuffStack * s = head;
   char * buff = head ? head->buff : NULL;
-  size_t non_parsed = eob - yytext,
+  size_t non_parsed = eob - tkn,
     size = page_size;
 
-  if (buff == yytext) {
+  if (buff == tkn) {
     size = 2 * non_parsed;
-    buff = realloc (buff, size);
-    if (!buff)
-      oom ();
-    head->buff = buff;
+    head->buff = buff = realloc (buff, size);
+    oom (!buff);
   }
   else {
-    s = malloc (sizeof (BuffStack));
+    BuffStack * s = malloc (sizeof (BuffStack));
     buff = malloc (size);
-    if (!s || !buff)
-      oom ();
+    oom (!s || !buff);
     s->buff = buff;
     s->next = head;
     head = s;
-    memcpy (buff, yytext, non_parsed);
+    memcpy (buff, tkn, non_parsed);
   }
 
   size_t n = non_parsed + fread (ptr, 1, size - non_parsed, fp);
-  yytext = buff;
-  ptr    = buff + non_parsed;
-  eob    = buff + n;
+  tkn = buff;
+  ptr = buff + non_parsed;
+  eob = buff + n;
   if (n < size) {
     if (!feof (fp)) {
-      fprintf (stderr, "fread () failed");
+      fprintf (stderr, "cpp : fread () failed");
       exit (-1);
     }
+    /*
+    .. fixme :  truncate the buff, if very conservative use of memory.
+    */
     eof = eob;
   }
 }
@@ -90,88 +97,54 @@ static int input () {
   return (int) (unsigned char) *ptr++;
 }
 
-
 /*
-.. prepreprocessed output
+.. prepreprocessed output is the output of translation phases 2-3 
+.. (Refer steps (a)-(f)) which is temporarily stored in "buff" and
+.. returned when cpp_fgets () is called.
+.. NOTE : "buff" may hold 1 or more lines that can fit in |buff|.
 */
-static char * buff = NULL;
-static char * bptr;
-static char * strt;
-static char * lim;
+static char * buff;
+static char * _ptr;
+static char * _tkn;
+static char * _eob;
+static char holdchar = '\0';
 
-#define YYTOKEN() \
-  strt = bptr;    \
-  yytext = ptr
+static inline
+int push (int c) {
+  *_ptr++ = (char) (unsigned char) c;
 
-static int output (int c) {
-  if (bptr == lim) {
-    if (strt == buff) {
-      size_t s = (size_t)1 + (lim - strt);
-      buff = realloc (buff, 2*s);
-      if (!buff)
-        oom ();
-      bptr = buff + (s-1);
-      lim  = buff + (2*s-1);
+  if (_ptr == _eob) {
+    if (_tkn == buff) {
+      size_t s = (size_t) 1 + (_eob - _tkn);
+      _tkn = buff = realloc (buff, 2*s);
+      oom (!buff);
+      _ptr = buff + (s-1);
+      _eob = buff + (2*s-1);
     }
     else {
-      *lim++ = (char) (unsigned char) c;
-      return 1;
+      holdchar = *_tkn;
+      *_tkn = '\0';
+      return 0;
     }
   }
 
-  *bptr++ = (char) (unsigned char) c;
-  if (c == '\n') {
-    YYTOKEN;
-  }
-  return 0;
+  return 1;
 }
 
-static void echo () {
-  fwrite (buff, 1, strt-buff, stdout);
-  memmove (buff, strt, bptr-strt);
-  bptr = & buff [bptr-strt];
-  strt = buff;
-}
-
-static void push (int c) {
-  /*
-  .. The current line is guaranteed in the buffer.
-  .. "strt" is the BOL (current line)
-  */
-  if (bptr == lim) {
-    size_t size = (lim - buff) + 1;
-    if ( bptr-strt > (size_t) (0.8* size) ) {
-      strt = buff = realloc (buff, 2*size);
-      if (!buff) {
-        fprintf(stderr, 
-          "cpp : out of dynamic memory : malloc failed");
-        exit (-1);
-      }
-      lim = & buff [2*size-1];
-      bptr = & buff [size-1];
-    }
-    else
-      echo ();
-  }
-  *bptr++ = (char) (unsigned char) c;
-}
-
-#define pop()      bptr--
 static int eol (int quote) {
-  pop();
       
-  char * p = bptr, c;
+  char * p = _ptr, c;
   if (quote) {
     while ( (c = *--p) != '"') {
       if ( !(c == ' ' || c == '\t') )
         break;
     }
     if (c == '\\') {
-      //stack warning. white space after "\\"
-      bptr = p;
+      //fixme : stack warning. white space after "\\"
+      _ptr = p;
       return 0;
     }
-    //stack warning. unclosed quote
+    //fixme : stack warning. unclosed quote
     return 1;
   }
 
@@ -179,43 +152,45 @@ static int eol (int quote) {
   .. pop trailing white spaces, and splicing "\\\n" if found
   */
   int splicing = 0;
-  while (p-- != strt) {
+  while (p-- != _tkn) {
     if ((c=*p) == '\\') {
       if (splicing)
         break;
-      //if (bptr-p>1) error ("trailing whitespace before '\\'");
+      //if (_ptr-p>1) error ("trailing whitespace before '\\'");
       splicing = 1;
       continue;
     }
     if (!(c == ' '||c == '\t'))
       break;
   }
-  bptr = p+1;
+  _ptr = p+1;
   return !splicing;
 }
 
-
-int main (int argc, char ** argv) {
-  if (argc < 2) {
-    fprintf (stderr, "fatal error : missing source");
-    exit (-1);
+void cpp_source (const char * source) {
+  if (!source) {
+    fp = stdin;
+    return;
   }
-  char * source = argv [1];
   fp = fopen (source, "r");
   if (!fp) {
-    fprintf (stderr, "fatal error : cannot open source");
+    fprintf (stderr, "cpp : fatal error : cannot open source");
     exit(-1);
   }
+  _tkn = _ptr = buff = malloc (page_size);
+  oom (!buff);
+  _eob = & _ptr [page_size-1];
+}
 
-  strt = bptr = buff = malloc (page_size);
-  if (!buff) {
-    fprintf(stderr, "out of dynamic memory : malloc failed");
-    exit (-1);
-  }
-  lim = & bptr [page_size-1];
-  int c, quote = 0, escape = 0, comment = 0,
-    percent = 0, compensate = 0;
-  char * backup;
+static int quote   = 0;
+static int escape  = 0;
+static int comment = 0;
+static int percent = 0;
+static int compensate = 0;
+
+int cpp_gets () {
+
+  int c;
   while ( (c=input()) != EOF ) {
     push (c);
 
@@ -224,8 +199,10 @@ int main (int argc, char ** argv) {
       if (eol (quote)) {
         for (;compensate;--compensate)
           push ('\n');
-        strt = bptr;
         quote = 0;
+        /* New line. So new token */
+        _tkn = _ptr;
+        tkn = ptr;
       }
       escape = 0;
       continue;
@@ -251,14 +228,14 @@ int main (int argc, char ** argv) {
             break;
         }
         /* consume white space before "\\" */
-        while ( (bptr != strt) ) {
-          if ( ! ((c = bptr[-1]) == '\\' || c == '\t' ) )
+        while ( (_ptr != _tkn) ) {
+          if ( ! ((c = _ptr[-1]) == '\\' || c == '\t' ) )
             break;
           pop();
         }
         for (++compensate; compensate; --compensate)
           push ('\n');
-        strt = bptr;
+        _tkn = _ptr;
         continue;
       }
       else if ( c == '*') {
@@ -281,9 +258,9 @@ int main (int argc, char ** argv) {
     if (percent) {
       percent = 0;
       if (c == ':') {
-        char * p = bptr - 2;
+        char * p = _ptr - 2;
         /* check if ^[ \t]*"%:" */
-        while (p != strt) {
+        while (p != _tkn) {
           if (!(*--p == ' '|| *p == '\t')) {
             p = NULL; break;
           }
