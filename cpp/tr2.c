@@ -104,31 +104,25 @@ static int input () {
 .. NOTE : "buff" may hold 1 or more lines that can fit in |buff|.
 */
 static char * buff;
-static char * _ptr;
-static char * _tkn;
-static char * _eob;
-static char holdchar = '\0';
+static char * _ptr = NULL;
+static char * _tkn = NULL;
+static char * _eob = NULL;
 
 static inline
-int push (int c) {
+int echo (int c) {
   *_ptr++ = (char) (unsigned char) c;
 
   if (_ptr == _eob) {
-    if (_tkn == buff) {
-      size_t s = (size_t) 1 + (_eob - _tkn);
-      _tkn = buff = realloc (buff, 2*s);
-      oom (!buff);
-      _ptr = buff + (s-1);
-      _eob = buff + (2*s-1);
-    }
-    else {
-      holdchar = *_tkn;
-      *_tkn = '\0';
-      return 0;
-    }
+    if (_tkn != buff) {
+      return 1;
+    size_t s = (size_t) 1 + (_eob - _tkn);
+    _tkn = buff = realloc (buff, 2*s);
+    oom (!buff);
+    _ptr = buff + (s-1);
+    _eob = buff + (2*s-1);
   }
 
-  return 1;
+  return 0;
 }
 
 static int eol (int quote) {
@@ -174,7 +168,7 @@ void cpp_source (const char * source) {
   }
   fp = fopen (source, "r");
   if (!fp) {
-    fprintf (stderr, "cpp : fatal error : cannot open source");
+    fprintf (stderr, "cpp : fatal error : cannot open %s", source);
     exit(-1);
   }
   _tkn = _ptr = buff = malloc (page_size);
@@ -188,11 +182,13 @@ static int comment = 0;
 static int percent = 0;
 static int compensate = 0;
 
-int cpp_gets () {
+#define pop() _ptr--
+char * cpp_gets (size_t * len) {
+
+  #define push(_c_) if (echo (_c_)) return buff
 
   int c;
   while ( (c=input()) != EOF ) {
-    push (c);
 
     if (c == '\n') {
       compensate ++;
@@ -207,6 +203,8 @@ int cpp_gets () {
       escape = 0;
       continue;
     }
+
+    push (c);
 
     if (quote) {
       if (escape)
@@ -265,10 +263,7 @@ int cpp_gets () {
             p = NULL; break;
           }
         }
-
-        //if (!p) {
-        //}
-
+        /* if (!p) { } */
         if (p) {
           pop (); pop ();
           push ('#');
@@ -293,11 +288,21 @@ int cpp_gets () {
     }
   }
 
-  /* flush the left over characters in buff */
-  echo ();
+  if ( (*len = (_tkn - buff)) == 0 ) {
+    free (buff);
+    buff = NULL;
+  }
+
+  return buff;
+
+}
+
+void cpp_clean () {
 
   /* cleaning */
-  fclose(fp);
+  if (fp != stdin)
+    fclose(fp);
+
   BuffStack * s = head;
   while (s){
     BuffStack * next = s->next;
@@ -305,5 +310,4 @@ int cpp_gets () {
     free (s);
     s = next;
   }
-  free (buff);
 }
