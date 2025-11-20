@@ -100,13 +100,15 @@ static int input () {
 /*
 .. prepreprocessed output is the output of translation phases 2-3 
 .. (Refer steps (a)-(f)) which is temporarily stored in "buff" and
-.. returned when cpp_fgets () is called.
-.. NOTE : "buff" may hold 1 or more lines that can fit in |buff|.
+.. returned when cpp_fgets () is called. NOTE : "buff" may hold 1
+.. or more lines that can fit in |buff|, however atleast 1 line is
+.. guaranteed.
 */
 static char * buff;
 static char * _ptr = NULL;
 static char * _tkn = NULL;
 static char * _eob = NULL;
+static char holdchar;
 
 static inline
 int echo (int c) {
@@ -114,7 +116,10 @@ int echo (int c) {
 
   if (_ptr == _eob) {
     if (_tkn != buff) {
+      holdchar = *_tkn;
+      *_tkn = '\0';
       return 1;
+    }
     size_t s = (size_t) 1 + (_eob - _tkn);
     _tkn = buff = realloc (buff, 2*s);
     oom (!buff);
@@ -124,6 +129,15 @@ int echo (int c) {
 
   return 0;
 }
+
+/*
+.. One whole line is represented as a token (NOTE : after
+.. removing the splicing "\\\n")
+*/
+#define tokenize() do {                  \
+    _tkn = _ptr;                         \
+    tkn  =  ptr;                         \ 
+  } while (0)
 
 static int eol (int quote) {
       
@@ -182,10 +196,19 @@ static int comment = 0;
 static int percent = 0;
 static int compensate = 0;
 
-#define pop() _ptr--
 char * cpp_gets (size_t * len) {
 
-  #define push(_c_) if (echo (_c_)) return buff
+  #define pop()     _ptr--
+  #define push(_c_) if (echo (_c_)) {
+                      return buff
+                    }
+
+  if (_tkn != _eob) {
+    *_tkn = holdchar;
+    memmove ( buff, _tkn, _eob - _tkn);
+    _ptr = buff + (_eob - _tkn);
+    _tkn = buff;
+  }
 
   int c;
   while ( (c=input()) != EOF ) {
@@ -197,8 +220,7 @@ char * cpp_gets (size_t * len) {
           push ('\n');
         quote = 0;
         /* New line. So new token */
-        _tkn = _ptr;
-        tkn = ptr;
+        tokenize ();
       }
       escape = 0;
       continue;
@@ -295,6 +317,9 @@ char * cpp_gets (size_t * len) {
 
   return buff;
 
+  #undef pop
+  #undef push
+
 }
 
 void cpp_clean () {
@@ -302,6 +327,7 @@ void cpp_clean () {
   /* cleaning */
   if (fp != stdin)
     fclose(fp);
+  fp = NULL;
 
   BuffStack * s = head;
   while (s){
@@ -311,3 +337,6 @@ void cpp_clean () {
     s = next;
   }
 }
+
+#undef oom
+#undef tokenize
