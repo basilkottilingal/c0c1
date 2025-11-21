@@ -9,12 +9,22 @@
 .. Assumes translation phase 1 is obsolete (and not required).
 */
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "cpp.h"
+
+/*
+.. Default buffer size
+*/
+static int page_size = CPP_PAGE_SIZE;
+void cpp_buff_size_set (size_t s) {
+  page_size = s;
+}
+size_t cpp_buff_size_get () {
+  return page_size;
+}
 
 /*
 .. fread and put in buffer, if buffer is full, create a new buffer
@@ -50,19 +60,23 @@ static void input_stack () {
     exit (-1);
   }
 
-  if (eof == eob)
+  if (eof == eob) {
+printf ("\n Case 3"); fflush (stdout);
     return;
+  }
 
   char * buff = head ? head->buff : NULL;
   size_t non_parsed = eob - tkn,
     size = page_size;
 
   if (buff == tkn) {
-    size = 2 * non_parsed;
+printf ("\n Case 1"); fflush (stdout);
+    size = 2 * (non_parsed + 1);
     head->buff = buff = realloc (buff, size);
     oom (!buff);
   }
   else {
+printf ("\n Case 2"); fflush (stdout);
     BuffStack * s = malloc (sizeof (BuffStack));
     buff = malloc (size);
     oom (!s || !buff);
@@ -72,11 +86,12 @@ static void input_stack () {
     memcpy (buff, tkn, non_parsed);
   }
 
-  size_t n = non_parsed + fread (ptr, 1, size - non_parsed, fp);
   tkn = buff;
   ptr = buff + non_parsed;
+  size_t n = non_parsed + fread (ptr, 1, (size - non_parsed) - 1, fp);
   eob = buff + n;
-  if (n < size) {
+  *eob = '\0';
+  if (n < size-1) {
     if (!feof (fp)) {
       fprintf (stderr, "cpp : fread () failed");
       exit (-1);
@@ -91,9 +106,10 @@ static void input_stack () {
 static int input () {
   if (ptr == eob) {
     input_stack ();
-    if (eob == eof)
+    if (ptr == eof)
       return EOF;
   }
+printf ("{%c}", *ptr); fflush (stdout);
   return (int) (unsigned char) *ptr++;
 }
 
@@ -104,10 +120,10 @@ static int input () {
 .. or more lines that can fit in |buff|, however atleast 1 line is
 .. guaranteed.
 */
-static char * buff;
-static char * _ptr = NULL;
-static char * _tkn = NULL;
-static char * _eob = NULL;
+static char * buff = tkn_dummy;
+static char * _ptr = tkn_dummy;
+static char * _tkn = tkn_dummy;
+static char * _eob = tkn_dummy;
 static char holdchar;
 
 static inline
@@ -136,7 +152,7 @@ int echo (int c) {
 */
 #define tokenize() do {                  \
     _tkn = _ptr;                         \
-    tkn  =  ptr;                         \ 
+    tkn  =  ptr;                         \
   } while (0)
 
 static int eol (int quote) {
@@ -178,16 +194,16 @@ static int eol (int quote) {
 void cpp_source (const char * source) {
   if (!source) {
     fp = stdin;
-    return;
   }
-  fp = fopen (source, "r");
-  if (!fp) {
-    fprintf (stderr, "cpp : fatal error : cannot open %s", source);
-    exit(-1);
+  else {
+    if ( (fp = fopen (source, "r")) == NULL ) {
+      fprintf (stderr, "cpp : fatal error : cannot open %s", source);
+      exit(-1);
+    }
   }
   _tkn = _ptr = buff = malloc (page_size);
   oom (!buff);
-  _eob = & _ptr [page_size-1];
+  _eob = buff + (page_size-1);
 }
 
 static int quote   = 0;
@@ -196,19 +212,17 @@ static int comment = 0;
 static int percent = 0;
 static int compensate = 0;
 
-char * cpp_gets (size_t * len) {
+size_t cpp_fgets (char ** output) {
 
   #define pop()     _ptr--
-  #define push(_c_) if (echo (_c_)) {
-                      return buff
-                    }
+  #define push(_c_) if (echo (_c_)) return (_tkn-buff)
 
-  if (_tkn != _eob) {
-    *_tkn = holdchar;
-    memmove ( buff, _tkn, _eob - _tkn);
-    _ptr = buff + (_eob - _tkn);
-    _tkn = buff;
-  }
+  *output = buff;
+
+  *_tkn = holdchar;
+  memmove ( buff, _tkn, _ptr - _tkn);
+  _ptr = buff + (_ptr - _tkn);
+  _tkn = buff;
 
   int c;
   while ( (c=input()) != EOF ) {
@@ -310,12 +324,14 @@ char * cpp_gets (size_t * len) {
     }
   }
 
-  if ( (*len = (_tkn - buff)) == 0 ) {
+  if (_ptr == buff) {
     free (buff);
-    buff = NULL;
+    *output = buff = NULL;
+    return 0;
   }
 
-  return buff;
+  tokenize ();
+  return _tkn - buff;
 
   #undef pop
   #undef push
