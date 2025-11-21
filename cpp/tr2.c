@@ -61,7 +61,6 @@ static void input_stack () {
   }
 
   if (eof == eob) {
-printf ("\n Case 3"); fflush (stdout);
     return;
   }
 
@@ -70,13 +69,11 @@ printf ("\n Case 3"); fflush (stdout);
     size = page_size;
 
   if (buff == tkn) {
-printf ("\n Case 1"); fflush (stdout);
     size = 2 * (non_parsed + 1);
     head->buff = buff = realloc (buff, size);
     oom (!buff);
   }
   else {
-printf ("\n Case 2"); fflush (stdout);
     BuffStack * s = malloc (sizeof (BuffStack));
     buff = malloc (size);
     oom (!s || !buff);
@@ -109,7 +106,6 @@ static int input () {
     if (ptr == eof)
       return EOF;
   }
-printf ("{%c}", *ptr); fflush (stdout);
   return (int) (unsigned char) *ptr++;
 }
 
@@ -331,6 +327,7 @@ size_t cpp_fgets (char ** output) {
   }
 
   tokenize ();
+  *_tkn = '\0';
   return _tkn - buff;
 
   #undef pop
