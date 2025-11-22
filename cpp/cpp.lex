@@ -3,8 +3,6 @@
 .. https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf
 .. Note that the C11 preprocessor rules are a superset of C99's rules.
 ..
-.. Important, assumes \\\n and comments are removed
-..
 .. test this using a sample .c file like
 .. $ cd ../ && make languages/cpp.lxr && cd languages/ &&          \
      gcc -fsanitize=address,leak -o cpp cpp.c &&                   \
@@ -112,60 +110,60 @@ STRING (\"([^"\\\n]|{ES})*\")
 "%:%:"    { 
             return /* fixme */ '#';
           }
-^{WS1}*#({WS1}*"line")?{WS1}+[0-9]+{WS1}+{STRING}        {
+^[ \t]*#([ \t]*"line")?[ \t]+[0-9]+[ \t]+{STRING}        {
             CPP_ISNEGLECT;
             location ();
             warn_trailing ();
           }
-^{WS1}*#{WS1}*"include"{WS1}*<[a-z_A-Z0-9/.\\+~-]+>    {
+^[ \t]*#[ \t]*"include"[ \t]*<[a-z_A-Z0-9/.\\+~-]+>    {
             CPP_ISNEGLECT;
             header (1);
             warn_trailing ();
           }
-^{WS1}*#{WS1}*"include"{WS1}*{STRING}   {
+^[ \t]*#[ \t]*"include"[ \t]*{STRING}   {
             CPP_ISNEGLECT;
             header (0);
             warn_trailing ();
           }
-^{WS1}*#{WS1}*"if"{WS1}+       { 
+^[ \t]*#[ \t]*"if"[ \t]+       { 
             env_if ();
           }
-^{WS1}*#{WS1}*"ifdef"{WS1}+{ID}    { 
+^[ \t]*#[ \t]*"ifdef"[ \t]+{ID}    { 
             env_ifdef (1);
             warn_trailing ();
           }
-^{WS1}*#{WS1}*"ifndef"{WS1}+{ID}   { 
+^[ \t]*#[ \t]*"ifndef"[ \t]+{ID}   { 
             env_ifdef (0); 
             warn_trailing ();
           }
-^{WS1}*#{WS1}*"elif"{WS1}+      {
+^[ \t]*#[ \t]*"elif"[ \t]+      {
             env_elif ();
           }
-^{WS1}*#{WS1}*"else"           {
+^[ \t]*#[ \t]*"else"           {
             env_else ();
             warn_trailing ();
           }
-^{WS1}*#{WS1}*"endif"          {
+^[ \t]*#[ \t]*"endif"          {
             env_endif ();
             warn_trailing ();
           }
-^{WS1}*#{WS1}*"define"{WS1}+{ID}   {
+^[ \t]*#[ \t]*"define"[ \t]+{ID}   {
             CPP_ISNEGLECT;
             define_macro ();
           }
-^{WS1}*#{WS1}*"undef"{WS1}+{ID}  {
+^[ \t]*#[ \t]*"undef"[ \t]+{ID}  {
             CPP_ISNEGLECT;
             undefine_macro ();
             warn_trailing ();
           }
-^{WS1}*#{WS1}*"error"  {
+^[ \t]*#[ \t]*"error"  {
             /* replace any macros */
             cpp_fatal ("%s", yytext);
           }
-^{WS1}*#{WS1}*[\n]  {
+^[ \t]*#[ \t]*[\n]  {
             /* Null directive. Just consume */
           }
-^{WS1}*#  {
+^[ \t]*#  {
             cpp_error ("\n not an ISO C99 # directive %s", yytext);
             /* echo */
           }
@@ -207,7 +205,7 @@ STRING (\"([^"\\\n]|{ES})*\")
 static void verbose_level (int l) {
   verbose = l;
 }
-   
+
 static char * get_content () {
   /*
   .. fixme : optimize by removing ///n and comments
@@ -238,7 +236,7 @@ static char * get_content () {
   lxr_token ();
   return & yytext [len];
 }
-
+   
 static void warn_trailing () {
   int c;
   while ( (c = lxr_input ()) != '\n' ) {
@@ -614,11 +612,6 @@ int main ( int argc, char * argv[] ) {
     cpp_fatal ("dynamic allocation for macros hashtable failed ");
   memset (macros, 0, table_size * sizeof (Macro *));
   status = env_status;
-  
-  if (argc > 1)
-    lxr_source (argv[1]);
-  snprintf (file, sizeof file, "%s",
-    (argc > 1) ? argv [1] : "<stdin>");
     
   int tkn, nexpr = 128, iexpr = 0;
   Token * expr = malloc (nexpr * sizeof (Token));
@@ -626,41 +619,48 @@ int main ( int argc, char * argv[] ) {
   /*
   .. lexing/parsing
   */
-  while ( (tkn = lxr_lex()) ) {
-    switch ( *status & CPP_PARSE ) {
-      case 0 :
-        break;
-      case CPP_PARSE_ON :
-        printf ("%s", yytext);
-        break;
-      case CPP_EXPR :
-        if (tkn == '\n') {
-          *status &= ~CPP_EXPR;
-          if (expr_eval (expr, iexpr) ) {
-            *status |=  CPP_PARSE_ON;
-            *status &= ~CPP_PARSE_NOTYET;
+  size_t nbytes; char * bytes;
+  cpp_source (argc > 1 ? argv [1] : NULL);
+
+  while ( (nbytes = cpp_fgets (&bytes)) ) {
+ 
+    lxr_read_bytes (bytes, nbytes, 1);
+    while ( (tkn = lxr_lex()) ) {
+      switch ( *status & CPP_PARSE ) {
+        case 0 :
+          break;
+        case CPP_PARSE_ON :
+          printf ("%s", yytext);
+          break;
+        case CPP_EXPR :
+          if (tkn == '\n') {
+            *status &= ~CPP_EXPR;
+            if (expr_eval (expr, iexpr) ) {
+              *status |=  CPP_PARSE_ON;
+              *status &= ~CPP_PARSE_NOTYET;
+            }
+            iexpr = 0;
+            break;
           }
-          iexpr = 0;
+          if (tkn == ' ' || tkn == '\t')
+            break;
+          /*
+          .. stack up tokens to evaluate expression #if.
+          .. Might need to redo ?. Don't know if macro substitutions
+          .. are allowe inside a # if expr
+          */
+          if ( iexpr == nexpr )
+            expr = realloc (expr, (nexpr *= 2)*sizeof (Token));
+          expr [iexpr++] =   /* stack tokens to evaluate expr later */
+            (Token) {
+              .start = yytext,
+              .end   = yytext + yyleng,
+              .token = tkn
+            };
           break;
-        }
-        if (tkn == ' ' || tkn == '\t')
-          break;
-        /*
-        .. stack up tokens to evaluate expression #if.
-        .. Might need to redo ?. Don't know if macro substitutions
-        .. are allowe inside a # if expr
-        */
-        if ( iexpr == nexpr )
-          expr = realloc (expr, (nexpr *= 2)*sizeof (Token));
-        expr [iexpr++] =   /* stack tokens to evaluate expr later */
-          (Token) {
-            .start = yytext,
-            .end   = yytext + yyleng,
-            .token = tkn
-          };
-        break;
-      default :
-        cpp_fatal ("cpp internal error : unknown parse status"); 
+        default :
+          cpp_fatal ("cpp internal error : unknown parse status"); 
+      }
     }
   }
 
@@ -680,12 +680,4 @@ int main ( int argc, char * argv[] ) {
     cpp_warning ("# if not closed");
 
   return 0;
-}
-
-static size_t cpp_buff_size = CPP_PAGE_SIZE;
-void cpp_buff_size_set (size_t s) {
-  cpp_buff_size = s;
-}
-size_t cpp_buff_size_set () {
-  return cpp_buff_size;
 }

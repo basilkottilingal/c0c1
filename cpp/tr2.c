@@ -53,6 +53,10 @@ static char * eof = NULL;
     }                                                    \
   } while (0)
 
+/*
+.. fread() a chunk to head->buff. head->buff need to hold
+.. atleast one line. Otherwise resize it.
+*/
 static void input_stack () {
 
   if (!fp) {
@@ -88,14 +92,23 @@ static void input_stack () {
   size_t n = non_parsed + fread (ptr, 1, (size - non_parsed) - 1, fp);
   eob = buff + n;
   *eob = '\0';
-  if (n < size-1) {
+  if (n+1 < size) {
     if (!feof (fp)) {
       fprintf (stderr, "cpp : fread () failed");
       exit (-1);
     }
     /*
-    .. fixme :  truncate the buff, if very conservative use of memory.
+    .. shrink memory block
     */
+    if (n+1 <= size / 2) {
+      buff = realloc (buff, n+1);
+      if (buff) {
+        tkn = head->buff = buff;
+        ptr = buff + non_parsed;
+        eob = buff + n;
+        *eob = '\0';
+      }
+    }
     eof = eob;
   }
 }
@@ -151,6 +164,9 @@ int echo (int c) {
     tkn  =  ptr;                         \
   } while (0)
 
+/*
+.. Identify if the last '\n' is a splicing or not
+*/
 static int eol (int quote) {
       
   char * p = _ptr, c;
@@ -289,7 +305,7 @@ size_t cpp_fgets (char ** output) {
       percent = 0;
       if (c == ':') {
         char * p = _ptr - 2;
-        /* check if ^[ \t]*"%:" */
+        /* check if "%:" satisfy pattern ^[ \t]*"%:" */
         while (p != _tkn) {
           if (!(*--p == ' '|| *p == '\t')) {
             p = NULL; break;

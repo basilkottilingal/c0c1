@@ -21,7 +21,8 @@ int main (int argc, char ** argv) {
   while ( (nbytes = cpp_fgets (&line))) {
     printf ("%s", line);
   }
-  
+
+  cpp_clean ();  
 }
 
 
