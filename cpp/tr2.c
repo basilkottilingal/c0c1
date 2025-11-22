@@ -242,8 +242,9 @@ size_t cpp_fgets (char ** output) {
     if (c == '\n') {
       compensate ++;
       if (eol (quote)) {
-        for (;compensate;--compensate)
+        for ( ; compensate; --compensate) {
           push ('\n');
+        }
         quote = 0;
         /* New line. So new token */
         tokenize ();

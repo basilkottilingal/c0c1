@@ -1,6 +1,7 @@
 /**
-.. c preprocessor tokenizer. Based on ISO C11 ( ISO/IEC 9899:2011 )
-.. https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf
+.. c preprocessor tokenizer. Based on ISO C11 ( ISO/IEC 9899:2011 ).
+.. You can find an open version of the ISO standard document
+.. https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf .
 .. Note that the C11 preprocessor rules are a superset of C99's rules.
 ..
 .. test this using a sample .c file like
@@ -72,7 +73,7 @@ STRING (\"([^"\\\n]|{ES})*\")
   static int  env_elif  ( );
   static int  env_else  ( );
   static int  env_endif ( );
-  static char * get_content ( );
+  static char * get_trailing ( );
   static void define_macro ( );
   static void undefine_macro ( );
   static void echo      ( char * str );
@@ -160,12 +161,16 @@ STRING (\"([^"\\\n]|{ES})*\")
             /* replace any macros */
             cpp_fatal ("%s", yytext);
           }
-^[ \t]*#[ \t]*[\n]  {
+^[ \t]*#[ \t]*"pragma" {
+            /* fixme : not yet implemented */
+            get_trailing ();
+          }
+^[ \t]*#[ \t]*[\n]     {
             /* Null directive. Just consume */
           }
 ^[ \t]*#  {
-            cpp_error ("\n not an ISO C99 # directive %s", yytext);
-            /* echo */
+            cpp_error ("\n not an ISO C11 # directive %s", yytext);
+            get_trailing ();
           }
 {ID}      { 
             return IDENTIFIER; 
@@ -206,41 +211,18 @@ static void verbose_level (int l) {
   verbose = l;
 }
 
-static char * get_content () {
-  /*
-  .. fixme : optimize by removing ///n and comments
-  */
-  int c, p = '\0';
-  while ( (c = lxr_input ()) != '\0' ) {
-    if ( c == '/' && p == '/' ) {
-      while ( (c = lxr_input ()) != '\0' && c != '\n' ) {
-      }
-      break;
-    }
-    if ( c == '\n' ) {
-      if ( p != '\\' ) break;
-    }
-    else if ( c == '*' && p == '/' ) {
-      while ( (c = lxr_input ()) != EOF ) {
-        if ( c != '*' ) continue;
-        while ( (c = lxr_input ()) == '*' ) {
-        }
-        if ( c == '/' ) break;
-      }
-      if ( c == EOF )
-        cpp_warning ("non-terminated /*");
-    }
-    p = c; 
+static char * get_trailing () {
+  int c, len = yyleng;
+  while ( (c = lxr_input ()) != EOF && c != '\n' ) {
   }
-  int len = yyleng;
   lxr_token ();
   return & yytext [len];
 }
    
 static void warn_trailing () {
-  int c;
-  while ( (c = lxr_input ()) != '\n' ) {
-    else if ( ! (c == ' ' || c == '\t') ) {
+  char * str = get_trailing (), c;
+  while ((c = *str++) != '\0') {
+    if ( ! (c == ' ' || c == '\t') ) {
       cpp_warning ("bad trailing characters after %s", yytext);
       return;
     }
@@ -349,7 +331,7 @@ static Macro * freelist = NULL;   /* hashtable & freelist of macros */
 static void * addresses = NULL;                     /* for cleaning */
 static char * allocator_p;
 static size_t allocator_s = 0;
-#define CPP_PAGE_SIZE     8192
+#define _CPP_PAGE_SIZE     8192  //fixme : rename
 #define CPP_ID_SIZE_LIM   4096
 
 static char * strdup_ (const char * s) {
@@ -357,13 +339,13 @@ static char * strdup_ (const char * s) {
   if (_l > allocator_s) {
     if (_l > CPP_ID_SIZE_LIM)
       cpp_fatal ("buffer limit for identifier");
-    char * m = malloc (CPP_PAGE_SIZE);
+    char * m = malloc (_CPP_PAGE_SIZE);
     if (m == NULL)
       cpp_fatal ("dynamic memory allocation failed in strdup_()");
     *( (void **) m) = addresses;
     addresses = (void *) m;
     allocator_p = m + 16;
-    allocator_s = CPP_PAGE_SIZE - 16;
+    allocator_s = _CPP_PAGE_SIZE - 16;
   }
   char * m = allocator_p;
   memcpy (m, s, l);
@@ -380,7 +362,7 @@ static int table_size = CPP_MACRO_TABLE_SIZE;
 static
 Macro * macro_allocate () {
   if (!freelist) {
-    int n = CPP_PAGE_SIZE;
+    int n = _CPP_PAGE_SIZE;
     char * address = malloc (n * sizeof (Macro) + 16);
     if (!address)
       cpp_fatal ("dynamic memory alloc failed in macro_allocate()");
@@ -536,7 +518,7 @@ static void define_macro () {
   m = macro_allocate ();
   m->key = strdup_ (id);
   printf ("\n**** new macro %s: ", m->key);
-  char * def = get_content ();
+  char * def = get_trailing ();
   char * code = macro_args (m, def);
   if (!code) {
     cpp_error ("wrong argument list for macro %s", id);
@@ -647,7 +629,7 @@ int main ( int argc, char * argv[] ) {
           /*
           .. stack up tokens to evaluate expression #if.
           .. Might need to redo ?. Don't know if macro substitutions
-          .. are allowe inside a # if expr
+          .. are allowed inside a # if expr
           */
           if ( iexpr == nexpr )
             expr = realloc (expr, (nexpr *= 2)*sizeof (Token));

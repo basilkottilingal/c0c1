@@ -3,8 +3,8 @@
 #define _H_CPP_ 1
 
   #ifndef CPP_PAGE_SIZE
-    #define CPP_PAGE_SIZE (1<<6)
-    //#define CPP_PAGE_SIZE (1<<14)
+    //#define CPP_PAGE_SIZE (1<<6) // for testing
+    #define CPP_PAGE_SIZE (1<<14)
   #endif
 
   void   cpp_buff_size_set (size_t);
